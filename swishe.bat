@@ -1,1 +1,0 @@
-swish-e -f .\indices\index.swish-e-win -w %1 > %2
