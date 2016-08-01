@@ -1,0 +1,9 @@
+# swish-e -w "Economics of OA" -x '<swishrank>  <swishdocpath>  <swishtitle>\n'
+
+#  swish-e -w "Pricing" -x '\n <swishrank> \<a href= <swishdocpath> \> <swishtitle>  \<\\a\> \n' > salida.htm
+
+#  swish-e -f index.swish-e-win -S fs -c pdfswin.conf
+
+IndexDir ./pdfs
+
+FileFilterMatch pdftotext "%p -" /.\.pdf$/
