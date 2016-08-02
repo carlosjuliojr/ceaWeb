@@ -9,6 +9,8 @@
 
 % Se debe correr previamente mathematica.pl.
 
+% :- use_module(library(pce)).  % pce library for objects and new
+
 :- use_module(library(http/thread_httpd)).
 :- use_module(library(http/http_dispatch)).
 :- use_module(library(http/html_write)).
@@ -202,7 +204,7 @@ procesa(Data, Entrada, Salida) :-
 	member(salida=Res, Data),
 	(Pre\='' -> read_term_from_atom(Pre, Entrada, []) ; true),
 	(Res\='' -> read_term_from_atom(Res, Salida, []) ; true),
-	buscar(Entrada).
+	buscar(Entrada, Salida).
 
 page_content([E2,S2], _Request) -->
 	html(
@@ -226,7 +228,7 @@ page_content([E2,S2], _Request) -->
 		div([class='text-center'],[
 	  p([style='font-size: 20pt', title='Entrada'], b('Resultados')),
 		textarea([name=resultados, class='form-control', type=textarea, rows=15,  placeholder='Resultados'], E2)]),
-
+            %\lista(S2), 
 
 	    \['<br></br>'],
 	    p(div(class='form-group col-xs-5 col-sm-5 col-md-5 col-lg-5',
@@ -239,7 +241,10 @@ page_content([E2,S2], _Request) -->
 
 	    ]).
 
-
+lista([]).
+lista([T|R]) :- 
+   p([style='font-size: 20pt', title='Entrada'], b('Resultados')),
+		textarea([name=resultados, class='form-control', type=textarea, rows=15,  placeholder='Resultados'], T)]), lista(R). 
 
 foot --> html(footer(
 	[
@@ -253,9 +258,9 @@ foot --> html(footer(
 /***************************************************************************************/
 /*ACA VA CODIGO DEL CEA PARA EMPEZAR A MODIFICAR*/
 
-%@browser and @query son variables especiales probando dsfss sd f sf sd
+%@browser and @query son variables especiales
 
-buscar(Desc) :-
+buscar(Desc, Ans) :-
    % "El usuario dice buscar"::
     %send(@browser, clear),
     %get(@query, selection, Consulta),
@@ -359,4 +364,217 @@ ajusta_camino(Url, New) :-
 
 
 ?- server(5000).
+
+% gramatica de la salida del indizador
+
+reporte((Head,Data)) --> encabezado(Head), cuerpo(Data), {!}.
+
+encabezado((Consulta, Hits)) --> formato, consulta(Query), stopwords, resultados(H),
+	{name(Consulta, Query), name(Hits, H), !}.
+
+% resultados(0) --> izq, end_of_line, period, {!}.
+
+resultados(H) --> hits(H), searchtime, runtime, {!}.
+
+formato --> izq, colon, texto(_), end_of_line.
+
+consulta(T) --> izq, colon, whites, texto(T), end_of_line, {name(NF, T), writeln(NF)}.
+
+stopwords --> izq, colon, texto(_S), end_of_line.
+	%{name(NF, S), write(' ->'), write(NF), write('<-')}.
+
+hits(H) --> izq, colon, whites, texto(H), end_of_line, {name(NF, H), writeln(NF)}.
+
+searchtime --> izq, colon, texto(ST), end_of_line, {name(NF, ST), writeln(NF)}.
+
+runtime --> izq, colon, texto(RT), end_of_line, {name(NF, RT), writeln(NF)}.
+
+cuerpo([]) --> period, {!}.
+cuerpo([I|R]) --> one_entry(I), cuerpo(R).
+
+one_entry((Rank,U,File,S)) -->
+  rank(R), whites, url(URL), whites, filename(F), whites, size(Size), end_of_line,
+  {name(Rank, R), name(U, URL), name(File, F), name(S, Size), writeln(U),!}.
+
+rank(R) --> texto(R).
+
+url(URL) --> texto(URL).
+
+filename(F) --> comilla, anything(F), comilla.
+
+anything([]) --> [].
+anything([C|R]) --> [C], {not(name('"',[C]))}, anything(R).
+
+size(S) --> texto(S).
+
+texto([A]) -->  alfanumerico(A).
+texto([A|R]) --> alfanumerico(A), texto(R).
+
+izq_unit --> [C],  % cualquier cosa menos : y fin de lÃ­nea o de texto
+   {not(name(':',[C])),not(name('\r',[C])),
+    not(name('\n',[C])),not(name('.', [C])),
+    not(char_type_char(C, fin, _))}.
+
+izq --> izq_unit.
+izq --> izq_unit, izq.
+
+alfanumerico(C) --> [C],
+   {not(name('\n',[C])),not(name('\r',[C])),
+    (char_type_char(C, alfa, _);char_type_char(C,especial,_))}.
+
+whites --> blanco.
+whites --> blanco, whites, {!}.
+
+blanco --> [C], {char_type_char(C, blanco,_)}.
+
+end_of_line --> [C], {name('\n',[C]);name('\r',[C])}.
+
+colon --> [C], {name(':',[C])}.
+
+period --> [C], {name('.', [C])}.
+
+comilla --> [C], {name('"', [C])}.
+
+error --> texto(T), {name('err', T)}.
+
+/* Tomado del resumidor.sourceforge.net */
+
+% leer_atomos(-Atomos,-AtomosUpper,-ProximoC)
+% Lee una lÃ­nea del texto, separÃ¡ndola en una lista de Ã¡tomos lower-case
+% y upper-case respectivamente.
+
+leer_atomos(BE, BS, Atomos, AtomosUpper, ProximoC) :-
+    leer_caracter(BE, BN, PrimerC, PrimerCUpper, PrimerT),
+    leer_oracion(BN, BS, PrimerC, PrimerCUpper, PrimerT, Atomos, AtomosUpper, ProximoC).
+
+% leer_oracion(+PrimerC,+PrimerCUpper,+PrimerT,-Lista,-ListaUpper,-ProximoC)
+% Dado el primer caracter lower y upper case, respectivamente, ademÃ¡s
+% del tipo de caracter correspondiente retorna la lista de palabras de
+% la oraciÃ³n. La oraciÃ³n esta delimitada por cualquier caracter de fin,
+% en especial el punto [46].
+
+leer_oracion(B, B, Caracter,Caracter,fin,[],[],Caracter) :- !.
+
+leer_oracion(B, B, 46,46,especial,[],[],46) :- !.
+
+leer_oracion(BE, BS, _,_,blanco,Atomos,AtomosUpper,ProximoC) :-
+    !,
+    leer_atomos(BE, BS, Atomos,AtomosUpper,ProximoC).
+
+leer_oracion(BE, BS, PrimerC,PrimerCUpper,Type,[PrimerC|Atomos],[AUpper|AtomosUpper],ProximoC) :-
+    !, (Type=especial;Type=alfa),
+    % name(A,[PrimerC]),
+    name(AUpper,[PrimerCUpper]),
+    leer_atomos(BE, BS, Atomos,AtomosUpper,ProximoC).
+
+%% Tokenizer modificado por Jacinto DÃ¡vila - 2012 Junio 21
+%% tomado de
+% et.pl - M. Covington      2003 February 12
+% etu.pl - Modified for Unicode - Donald Rogers     2006 July 17
+%          email: dero9753@ihug.co.nz
+%          Modified to cope with comma in numbers   2006 July 20
+
+% ET the Efficient Tokenizer
+
+%%
+%% Character classification
+%%
+
+% char_type_char(+Char,-Type,-TranslatedChar)
+%   Classifies all characters as letter, digit, special, etc.,
+%   and also translates each character into the character that
+%   will represent it, converting upper to lower case.
+% modified to handle a code as input directly :JD
+
+char_type_char(Code,Type,Tr) :-
+   atom_chars(Char, [Code]),
+   char_table(Char,Type,Tr),
+   !.
+
+% Donald changed this from special to letter.
+% Using downcase_atom saves having an enormous table
+% and should handle all languages.
+% letter -> alfa
+char_type_char(Char,alfa,Char) :-
+   atom_chars(_,[Char]).
+   %downcase_atom(L2,L3),
+   %atom_chars(L3,[Char2]).
+
+% End of line marks
+% eol -> fin
+char_table(end_of_file, fin, end_of_file).
+char_table(-1, fin, end_of_file).
+%char_table('\n',        fin, '\n'       ).
+
+% Whitespace characters
+% whitespace -> blanco
+char_table(' ',     blanco,  ' ').     % blank
+char_table('\t',    blanco,  ' ').     % tab
+% char_table('\r',    blanco,  ' ').     % return
+char_table('''',    blanco, '''').     % apostrophe does not translate to blank
+% char_table('\n',    blanco, '\n').
+
+% Donald removed the letter characters and replaced them by special characters.
+% There are too many Unicode letters to put them all in a table.
+% The third parameter may be useless, but maybe someone will want to convert
+% some of the special characters.
+% There may be other Unicode characters that need to be added.
+% special -> especial
+char_table('~',     especial,    '~' ).
+char_table('`',     especial,    '`' ).
+char_table('!',     especial,    '!' ).
+char_table('@',     especial,    '@' ).
+char_table('#',     especial,    '#' ).
+char_table('$',     especial,    '$' ).
+char_table('\u0025',especial,    '\u0025' ). %
+char_table('^',     especial,    '^' ).
+char_table('&',     especial,    '&' ).
+char_table('*',     especial,    '*' ).
+char_table('(',     especial,    '(' ).
+char_table(')',     especial,    ')' ).
+char_table('_',     especial,    '_' ).
+char_table('-',     especial,    '-' ).
+char_table('+',     especial,    '+' ).
+char_table('=',     especial,    '=' ).
+char_table('{',     especial,    '{' ).
+char_table('[',     especial,    '[' ).
+char_table('}',     especial,    '}' ).
+char_table(']',     especial,    ']' ).
+char_table('|',     especial,    '|' ).
+char_table('\\',    especial,    '\\' ).
+char_table(':',     especial,    ':' ).
+char_table(';',     especial,    ';' ).
+char_table('"',     especial,    '"' ).
+char_table('<',     especial,    '<' ).
+char_table(',',     especial,    ',' ).
+char_table('>',     especial,    '>' ).
+char_table('.',     especial,    '.' ).
+char_table('?',     especial,    '?' ).
+char_table('/',     especial,    '/' ).
+
+% Digits
+% digit -> alfa ; Ojo, corregir
+char_table('0',   alfa,     '0' ).
+char_table('1',   alfa,     '1' ).
+char_table('2',   alfa,     '2' ).
+char_table('3',   alfa,     '3' ).
+char_table('4',   alfa,     '4' ).
+char_table('5',   alfa,     '5' ).
+char_table('6',   alfa,     '6' ).
+char_table('7',   alfa,     '7' ).
+char_table('8',   alfa,     '8' ).
+char_table('9',   alfa,     '9' ).
+
+% Everything else is a letter character.
+
+
+% fin cea
+
+pce_string_to_list(S, L) :-
+	pce_string_to_list(S, 0, L).
+pce_string_to_list(S, I, [C|T]) :-
+	get(S, character, I, C), !,
+	NI is I + 1,
+	pce_string_to_list(S, NI, T).
+pce_string_to_list(_, _, []).
 
